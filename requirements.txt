@@ -1,0 +1,12 @@
+# The agent
+crewai>=0.100
+requests>=2.32
+
+# Instrumentation the harness (run.py) turns on. The agent itself imports none of it.
+opentelemetry-sdk>=1.30
+opentelemetry-exporter-otlp-proto-http>=1.30
+opentelemetry-instrumentation-requests>=0.51b0
+openinference-instrumentation-crewai>=0.1.9
+openinference-instrumentation-litellm>=0.1.19
+# Only if you point LLM_MODEL at OpenAI directly:
+# openinference-instrumentation-openai>=0.1.20
