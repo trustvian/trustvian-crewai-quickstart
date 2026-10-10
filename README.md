@@ -32,8 +32,8 @@ run.py               instrumentation harness; runs crew.py unchanged
 `crew.py` and `tools.py` are your application; neither knows OpenTelemetry
 exists. `run.py` stands in for a framework's own instrumentation: it builds
 the SDK from the environment variables `trustvian dev` hands the child
-process, turns on the CrewAI + LiteLLM + requests instrumentors, and then
-runs `crew.py` as-is.
+process, turns on the CrewAI + OpenAI + requests instrumentors (and LiteLLM's
+when it is installed), and then runs `crew.py` as-is.
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
@@ -96,10 +96,12 @@ trustvian eval compare \
 echo "exit: $?"
 ```
 
-Expected: `+ tool · export_customer` added, `Gate: FAIL`, exit code 1. Run the
-same command with `--max-added-behaviors 1` and it passes. The Compare tab in
-the WebUI shows the same result; clicking a finding jumps to the observations
-that are its evidence.
+Expected: `Behaviors: +1 / …`, `FAIL Added behaviors: 1 (maximum 0)`,
+`Gate: FAIL`, exit code 1. The added behavior is the `export_customer` tool;
+`--json` lists it under `behavior_diff`. Run the same command with
+`--max-added-behaviors 1` and it passes. The Compare tab in the WebUI shows
+the same result; clicking a finding jumps to the observations that are its
+evidence.
 
 ## 6. What you learned, what is still missing
 
@@ -141,7 +143,7 @@ control plane, agent runner), `compose/control-plane.sh`, `compose/agent-entrypo
 
 ```bash
 cp .env.example .env              # optional; every value has a default
-docker compose --profile agent build  # all three images
+docker compose --profile agent build  # the control-plane and agent images
 docker compose up -d
 ```
 
@@ -191,9 +193,11 @@ echo "exit: $?"
 
 `compare` takes two explicit ids too: `docker compose run --rm agent compare
 ref-… cand-…`. The gate limits come from `MAX_ADDED_BEHAVIORS`,
-`MAX_BLOCK_DECISIONS`, `MAX_CRITICAL_RISK_OBSERVATIONS` (all default 0).
-Expected result is the same as in the native flow: `+ tool · export_customer`,
-`Gate: FAIL`, exit 1; and the Compare tab in the WebUI shows it.
+`MAX_BLOCK_DECISIONS`, `MAX_CRITICAL_RISK_OBSERVATIONS` (all default 0), passed
+with `-e`: `docker compose run --rm -e MAX_ADDED_BEHAVIORS=1 agent compare`.
+Expected result is the same as in the native flow: `Behaviors: +1 / …`,
+`FAIL Added behaviors: 1 (maximum 0)`, `Gate: FAIL`, exit 1, with
+`export_customer` as the added behavior; the Compare tab in the WebUI shows it.
 
 Two things read differently from the native flow:
 
