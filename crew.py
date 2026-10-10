@@ -59,6 +59,8 @@ tasks = [
 ]
 
 if __name__ == "__main__":
-    result = Crew(agents=[agent], tasks=tasks, verbose=True).kickoff()
+    # A fixed name: without one the instrumentor names the kickoff span
+    # Crew_<random uuid>, a new behavior on every run.
+    result = Crew(name="support-crew", agents=[agent], tasks=tasks, verbose=True).kickoff()
     print("\n=== crew finished ===")
     print(result)

@@ -8,5 +8,6 @@ opentelemetry-exporter-otlp-proto-http>=1.30
 opentelemetry-instrumentation-requests>=0.51b0
 openinference-instrumentation-crewai>=0.1.9
 openinference-instrumentation-litellm>=0.1.19
-# Only if you point LLM_MODEL at OpenAI directly:
-# openinference-instrumentation-openai>=0.1.20
+# CrewAI >= 1.x calls OpenAI-compatible providers (Ollama, vLLM, OpenAI) through
+# the openai SDK, not LiteLLM: this is what records the model calls.
+openinference-instrumentation-openai>=0.1.20
