@@ -7,13 +7,16 @@ Everything here reads the environment `trustvian dev` hands the child:
   OTEL_SEMCONV_STABILITY_OPT_IN=http   new HTTP attribute names
   OTEL_BSP_SCHEDULE_DELAY              short batch flush
 
-crew.py and tools.py never import any of this. The harness turns on three
-instrumentors — CrewAI (agent/task/tool spans), LiteLLM (model calls) and
-requests (the HTTP beneath each tool) — then runs crew.py unchanged.
+crew.py and tools.py never import any of this. The harness turns on
+CrewAI (agent/task/tool spans), OpenAI (model calls: CrewAI reaches Ollama,
+vLLM and OpenAI through the openai SDK), LiteLLM (model calls for providers
+CrewAI still routes through LiteLLM, when it is installed) and requests (the
+HTTP beneath each tool), then runs crew.py unchanged.
 
 Usage:  trustvian dev --instrumentation existing --agent support-crew -- python run.py
 """
 import atexit
+import importlib.util
 import os
 import runpy
 import sys
@@ -26,6 +29,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from openinference.instrumentation.crewai import CrewAIInstrumentor
 from openinference.instrumentation.litellm import LiteLLMInstrumentor
+from openinference.instrumentation.openai import OpenAIInstrumentor
 
 
 def main() -> None:
@@ -48,16 +52,12 @@ def main() -> None:
     atexit.register(provider.shutdown)  # flush before the process exits
 
     CrewAIInstrumentor().instrument(tracer_provider=provider)
-    LiteLLMInstrumentor().instrument(tracer_provider=provider)
+    OpenAIInstrumentor().instrument(tracer_provider=provider)
     RequestsInstrumentor().instrument(tracer_provider=provider)
-
-    # Optional: direct OpenAI SDK usage (LLM_MODEL=openai/...).
-    try:
-        from openinference.instrumentation.openai import OpenAIInstrumentor
-
-        OpenAIInstrumentor().instrument(tracer_provider=provider)
-    except ImportError:
-        pass
+    # LiteLLM is optional since CrewAI 1.x; instrumenting it when it is
+    # absent only prints a warning.
+    if importlib.util.find_spec("litellm"):
+        LiteLLMInstrumentor().instrument(tracer_provider=provider)
 
     here = os.path.dirname(os.path.abspath(__file__))
     sys.path.insert(0, here)
