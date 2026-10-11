@@ -103,7 +103,7 @@ Expected: `Behaviors: +1 / …`, `FAIL Added behaviors: 1 (maximum 0)`,
 the same result; clicking a finding jumps to the observations that are its
 evidence.
 
-## 6. What you learned, what is still missing
+## 6. What you learned, and where to go next
 
 - Run the agent twice and the second run's anomaly confidence goes up: the
   engine keeps a file baseline per candidate (`~/.trustvian/dev/<hash>/`).
