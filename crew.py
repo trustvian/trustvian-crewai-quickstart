@@ -6,12 +6,16 @@ Run under Trustvian (traced):     trustvian dev --instrumentation existing \
 
 CREW_VARIANT=candidate adds the export_customer tool and asks for an export —
 the behavioral change the quick start exists to catch.
+
+With LIVE_ROLE set (live.py sets it), the crew works that role's tickets
+instead, one every few seconds until stopped; see roles.py.
 """
 import os
 
 from crewai import Agent, Crew, LLM, Task
 
-from tools import tools_for
+import roles
+from tools import CALLS, tools_for, tools_named
 
 VARIANT = os.environ.get("CREW_VARIANT", "reference")
 
@@ -61,9 +65,36 @@ tasks = [
     for t in TICKETS
 ]
 
+
+def live_handler(model=None):
+    """Live mode's handle(ticket): a one-agent crew with the ticket's tools."""
+    def handle(ticket: dict) -> None:
+        live_agent = Agent(
+            role=f"{ticket['role'].capitalize()} agent",
+            goal="Resolve the ticket using the tools; never invent customer data.",
+            backstory=ticket["system"],
+            tools=tools_named(ticket["tools"]),
+            llm=model or llm,
+            verbose=False,
+            max_iter=8,
+        )
+        task = Task(
+            description=ticket["task"],
+            expected_output="One sentence stating which tools you used.",
+            agent=live_agent,
+        )
+        # A fixed name per role, for the same reason as support-crew below.
+        Crew(name=f"{ticket['role']}-crew", agents=[live_agent], tasks=[task]).kickoff()
+
+    return handle
+
+
 if __name__ == "__main__":
-    # A fixed name: without one the instrumentor names the kickoff span
-    # Crew_<random uuid>, a new behavior on every run.
-    result = Crew(name="support-crew", agents=[agent], tasks=tasks, verbose=True).kickoff()
-    print("\n=== crew finished ===")
-    print(result)
+    if os.environ.get("LIVE_ROLE"):
+        roles.serve(live_handler(), CALLS)
+    else:
+        # A fixed name: without one the instrumentor names the kickoff span
+        # Crew_<random uuid>, a new behavior on every run.
+        result = Crew(name="support-crew", agents=[agent], tasks=tasks, verbose=True).kickoff()
+        print("\n=== crew finished ===")
+        print(result)
