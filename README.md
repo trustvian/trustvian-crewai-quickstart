@@ -103,12 +103,16 @@ Expected: `Behaviors: +1 / …`, `FAIL Added behaviors: 1 (maximum 0)`,
 the same result; clicking a finding jumps to the observations that are its
 evidence.
 
-## 6. What you learned, what is still missing
+## 6. What you learned, and where to go next
 
 - Run the agent twice and the second run's anomaly confidence goes up: the
   engine keeps a file baseline per candidate (`~/.trustvian/dev/<hash>/`).
-- `trustvian eval run --scenario` (N runs from a scenario file) and the PR
-  comment do not exist yet (tasks 078/079). For now, compare two run ids.
+- One run is a sample. Repeating the comparison N times per side from a
+  scenario file (`trustvian eval run --scenario`) and posting the result as a
+  pull request comment (the GitHub Action) both ship in v0.10.0: see
+  [`docs/platform-cli.md`](https://github.com/trustvian/trustvian/blob/v0.10.0/docs/platform-cli.md)
+  and
+  [`docs/ci-github-action.md`](https://github.com/trustvian/trustvian/blob/v0.10.0/docs/ci-github-action.md).
 - If the model fails to call tools (it happens with 4B models) the behavior
   set comes out incomplete; that is a model finding, not a Trustvian finding.
   Try a larger model via `LLM_MODEL`.
