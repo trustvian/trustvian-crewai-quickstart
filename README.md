@@ -27,7 +27,7 @@ mock_services.py     fake CRM on 127.0.0.1:8081 (standard library, no dependenci
 tools.py             the agent's tools — imports NEITHER OTel NOR Trustvian
 crew.py              the agent and its tasks — imports NEITHER OTel NOR Trustvian
 run.py               instrumentation harness; runs crew.py unchanged
-live.py              live mode (step 7): starts and supervises three agents
+live.py              live mode (step 7): one trustvian dev per agent, supervised
 roles.py             live mode's roles, tickets and per-worker loop
 tests/               live mode and content checks; no model needed
 ```
@@ -123,101 +123,150 @@ evidence.
 ## 7. Live mode: a fleet that keeps working
 
 Steps 3–5 are runs that end. Live mode is one that does not: three agents,
-each its own process and its own actor, work a ticket every few seconds until
-you stop them, so the live view fills continuously.
+each its own process, its own actor and its own Trustvian run, work a ticket
+every few seconds until you stop them, so the live view fills continuously.
 
-| Actor (`service.name`) | Tools | Tickets (eight each, e.g.) |
+| Agent (`service.name`) | Tools | Tickets (eight each, e.g.) |
 |---|---|---|
 | `support-agent` | `lookup_customer`, `send_reply` | "How do I reset my password?" |
 | `billing-agent` | `lookup_customer`, `lookup_invoice`, `issue_refund` | "I was charged twice this month." |
 | `accounts-agent` | `lookup_customer`, `change_plan` | "Please upgrade me to Pro." |
 
-`live.py` starts one worker per role, each `python run.py` with
-`OTEL_SERVICE_NAME=<role>-agent` and `LIVE_ROLE=<role>`; `crew.py` sees
-`LIVE_ROLE` and works each of that role's tickets with a one-agent crew. Two things
-happen on purpose, and rarely:
+`live.py` starts one `trustvian dev` per role, all attached to one control
+plane that is already running:
+
+```text
+trustvian dev --api-url $TRUSTVIAN_API_URL --project trustvian-crewai-quickstart \
+  --agent <role>-agent --candidate live-<role> --instrumentation existing \
+  -- python run.py
+```
+
+with `LIVE_ROLE=<role>` in its environment; `crew.py` sees `LIVE_ROLE` and
+works each of that role's tickets with a one-agent crew. dev exports
+`--agent` as `OTEL_SERVICE_NAME` and starts a Collector of its own, and each
+role learns into a baseline of its own (the candidate is dev's learning
+scope). Two things happen on purpose, and rarely:
 
 - **Drift.** Every 20th billing ticket also binds `export_customer` and asks
-  for an export: a new behavior on an actor Trustvian has already learned.
+  for an export: a new behavior on an agent Trustvian has already learned.
 - **Failed calls.** The fake CRM answers about 5% of requests with `503`
   (`429` for refunds). The tool returns a short failure to the model, which
   usually tries again.
 
-With the CRM from step 2 running (Terminal A) and step 3's exports:
+Three terminals. **Terminal A**, the CRM from step 2. **Terminal C**, the
+control plane every run attaches to, on a state directory of its own (the
+standalone command from Trustvian's `docs/local-development.md`, "Running the
+parts separately"):
 
 ```bash
-trustvian dev --instrumentation existing \
-  --agent support-fleet --candidate live \
-  -- python live.py
+trustvian-local --state-dir ~/.trustvian/live --listen 127.0.0.1:8080
 ```
 
-`live.py` prints one line per ticket, never its text:
+It prints `Web: http://127.0.0.1:8080/`; open it. **Terminal B**, with step
+3's exports:
+
+```bash
+export TRUSTVIAN_API_URL=http://127.0.0.1:8080
+python live.py
+```
+
+Without `TRUSTVIAN_API_URL`, `live.py` exits with one line naming the
+`trustvian-local` command above. It prints each run id as its dev reports it,
+then one line per ticket, never its text:
 
 ```text
-live: 3 agents (support-agent, billing-agent, accounts-agent), one ticket each every ~10 s, until stopped (Ctrl-C)
-support-agent   ticket 1    tools: send_reply, lookup_customer  (2.5 s)
-billing-agent   ticket 20   tools: lookup_customer, lookup_invoice, export_customer, issue_refund  (4.1 s)  [drift]
-billing-agent   ticket 3    tools: lookup_invoice, issue_refund, lookup_customer  (3.5 s)  failed calls: 1
+live: 3 agents (support-agent, billing-agent, accounts-agent), one run each on http://127.0.0.1:8080, one ticket each every ~10 s, until stopped (Ctrl-C)
+live: watch at http://127.0.0.1:8080/
+support-agent   run dev-live-support-20261012T102217.146Z
+billing-agent   run dev-live-billing-20261012T102217.281Z
+accounts-agent  run dev-live-accounts-20261012T102217.357Z
+support-agent   ticket 1    tools: lookup_customer, send_reply  (2.7 s)  failed calls: 1
+billing-agent   ticket 20   tools: issue_refund, lookup_customer, export_customer, lookup_invoice  (4.0 s)  failed calls: 1  [drift]
+accounts-agent  ticket 11   tools: lookup_customer, change_plan  (1.9 s)  failed calls: 1
 ```
 
-Stop it with **Ctrl-C**: `live.py` stops every worker (SIGTERM, SIGKILL after
-5 s), prints the tickets per agent and exits 0, and dev prints `Run
-dev-live-… complete.`
+Stop it with **Ctrl-C** in Terminal B: `live.py` sends every dev `SIGINT`,
+each stops its agent and completes its run (`… run dev-live-… complete`),
+and `live.py` prints the tickets per agent and exits 0. A dev still running
+after 20 s (`LIVE_STOP_GRACE_SECONDS`) is killed, its Collector and agent
+with it. A dev that exits early is restarted after a back-off, as a new run
+with a new card; the others keep working. Stop Terminal C afterwards; its
+state keeps the runs.
 
-What a 5½-minute run showed (Trustvian v0.10.0, `qwen2.5:3b` on an Apple M3
+**What you will see** in the WebUI's Live page:
+
+- **Three cards under "Active now"**, `support-agent`, `billing-agent` and
+  `accounts-agent`, each with its run id, the most recently active first.
+- **The newest activity is followed**: the canvas and the Inspector switch
+  to whichever agent sent the latest observations ("Following newest
+  activity").
+- **Click a card to follow that agent.** The view stays on it ("Pinned to
+  your selection") while the other cards keep counting.
+- **Follow active** goes back to following the newest activity.
+
+What a 6-minute run showed (Trustvian v0.10.0, `qwen2.5:3b` on an Apple M3
 Pro laptop, Ollama with `OLLAMA_NUM_PARALLEL=1`):
 
-- **One agent in the live view, three actors in the evidence.** The live
-  view's Agent, its Behavior flow and every Live stream row name the run's
-  agent, `support-fleet`. Which worker did what is in each observation's
-  `actor_id` (`support-agent`, `billing-agent`, `accounts-agent`), which
-  `GET /v1/evaluation-runs/<run>/observations` returns. The roles also show
-  in the behavior names, because CrewAI names its spans after the crew and the
-  agent: `rpc/billing-crew.kickoff`, `rpc/Billing agent._execute_core`.
-- **A steady stream.** 80 tickets (27, 26 and 27), about 700 observations;
-  a ticket took 2–3 s at the median and 6 s at most, so the 10 s interval
-  keeps up even with the three workers queueing on one model.
-- **15 behaviors.** `external/qwen2.5:3b → openai` (CrewAI reaches Ollama
-  through the OpenAI client), `http/GET` and `http/POST → 127.0.0.1`, a
-  `rpc/<role>-crew.kickoff` and a `rpc/<Role> agent._execute_core` per role,
-  and six tools, each under the actor whose role has it: `lookup_customer`,
-  `send_reply`, `lookup_invoice`, `issue_refund`, `change_plan`, and the
-  drift's `export_customer`.
-- **The drift** appeared once, at billing ticket 20, about four minutes in:
-  `tool/export_customer`, NEW.
-- **Failed calls:** 10 HTTP observations with an error status, each the
-  `503` or `429` of one CRM request; the run went on.
+- **Three cards, one per agent**, and three runs, each `completed` after
+  Ctrl-C, which took 2 s; no dev, Collector or agent was left running.
+- **A steady stream.** 83 tickets (28, 27 and 28), about 730 observations;
+  a ticket took 1.8–2.9 s at the median and 6.4 s at most.
+- **Each agent's behaviors, in its own run:** `external/qwen2.5:3b → openai`
+  (CrewAI reaches Ollama through the OpenAI client), `http/GET` and
+  `http/POST → 127.0.0.1`, the crew's `rpc/<role>-crew.kickoff` and
+  `rpc/<Role> agent._execute_core`, and the agent's tools: 7 for
+  `support-agent` and `accounts-agent`, 9 for `billing-agent` (its three
+  tools and the drift's `export_customer`).
+- **The drift** appeared once, at billing ticket 20, about 4¼ minutes in, on
+  the `billing-agent` card; the Inspector opened `tool export_customer`,
+  NEW, once the view followed it.
+- **Failed calls:** 15, each the `503` or `429` of one CRM request (8 for
+  `support-agent`, 5 for `billing-agent`, 2 for `accounts-agent`); the runs
+  went on.
+
+What the live view does not do at Trustvian v0.10.0:
+
+- **No pause.** The view keeps moving; to hold one agent still, pin its card.
+- **The canvas draws from the moment you select a run.** The stream keeps
+  no history, so a pinned card's canvas fills as new observations arrive; a
+  one-off such as the drift is drawn only if it arrives while that run is
+  shown. The Live stream table below lists every agent's rows, whichever card
+  is pinned. Earlier evidence is under Runs.
 
 The knobs, all environment variables:
 
 | Variable | Default | |
 |---|---|---|
-| `LIVE_AGENTS` | `support,billing,accounts` | the roles to run |
+| `TRUSTVIAN_API_URL` | none; required | the control plane every dev attaches to |
+| `LIVE_AGENTS` | `support,billing,accounts` | the roles to run, one dev each |
 | `LIVE_INTERVAL_SECONDS` | `10` | one ticket per agent this often, ±50% jitter |
 | `LIVE_DRIFT_EVERY` | `20` | every Nth billing ticket also exports; `0` = never |
-| `LIVE_MAX_TICKETS` | `0` | tickets per agent, then stop; `0` = until stopped |
+| `LIVE_MAX_TICKETS` | `0` | tickets per agent, then that run completes; `0` = until stopped |
+| `LIVE_STOP_GRACE_SECONDS` | `20` | how long Ctrl-C waits for the runs to complete |
 | `CRM_ERROR_RATE` | `0.05` | share of CRM requests that fail; `0` = none. Read by `mock_services.py`, so set it in Terminal A |
 
-The three workers share one model server. Ollama serves
+The three agents share one model server. Ollama serves
 `OLLAMA_NUM_PARALLEL` requests at a time and queues the rest; at `1`, as
 measured above, a ticket waits for the other agents' model calls, which is
 what the median includes. A slower model needs a longer
-`LIVE_INTERVAL_SECONDS`.
+`LIVE_INTERVAL_SECONDS`. Each role learns into its own baseline under
+`~/.trustvian/dev/`, kept between sessions, so the next session is scored
+against what this one taught.
 
-With Docker Compose, live mode is a service of its own, attached to the
-stack's control plane:
+With Docker Compose, live mode is a service of its own: `python live.py` in
+one container, its three dev processes and three Collectors attached to the
+stack's control plane with `TRUSTVIAN_API_URL=http://control-plane:8080`:
 
 ```bash
 docker compose --profile live up -d       # builds its image the first time
 # open http://127.0.0.1:8080/
-docker compose logs -f live               # the per-ticket lines
-docker compose --profile live down        # stops it; dev completes the run
+docker compose logs -f live               # the run ids and the per-ticket lines
+docker compose --profile live down        # stops it; every dev completes its run
 ```
 
 `down` keeps the volumes, so the next `up` is scored against what this one
-taught; `down -v` forgets it. The knobs go in `.env`; `TRUSTVIAN_LIVE_AGENT`
-renames `support-fleet`. The `agent` service and its subcommands are
-unchanged.
+taught; `down -v` forgets it. The knobs go in `.env`. The `agent` service
+and its subcommands are unchanged.
 
 CrewAI's instrumentor copies each task's description — here, the ticket
 text — onto its kickoff span as `crew_tasks`, and no `OPENINFERENCE_HIDE_*`
